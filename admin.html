@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商家管理后台</title>
+  <!-- 引入云开发Web SDK -->
+  <script src="https://res.wx.qq.com/open/js/cloudbase/2.9.1/cloud.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; }
+    body { padding: 20px; background-color: #f8f8f8; }
+    .page-title { text-align: center; margin-bottom: 20px; color: #333; }
+    .tab-nav { display: flex; gap: 10px; background: #fff; padding: 10px; border-radius: 8px; margin-bottom: 20px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 4px; background: #eee; color: #333; cursor: pointer; text-align: center; }
+    .tab-btn.active { background: #07c160; color: #fff; }
+    .tab-content { display: none; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .tab-content.active { display: block; }
+    .refresh-btn { padding: 8px 16px; background: #07c160; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 15px; }
+    .order-item, .goods-item { padding: 15px; border-bottom: 1px solid #eee; margin-bottom: 10px; }
+    .order-item:last-child, .goods-item:last-child { border-bottom: none; }
+    .item-title { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 8px; }
+    .item-info { color: #666; margin: 5px 0; font-size: 14px; }
+    .status-select { padding: 5px; border: 1px solid #eee; border-radius: 4px; margin-left: 10px; }
+    .sale-switch { width: 40px; height: 20px; background: #eee; border-radius: 10px; position: relative; cursor: pointer; display: inline-block; vertical-align: middle; margin-left: 10px; }
+    .sale-switch::after { content: ''; width: 16px; height: 16px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: left 0.3s; }
+    .sale-switch.active { background: #07c160; }
+    .sale-switch.active::after { left: 22px; }
+    .no-data { text-align: center; padding: 20px; color: #666; }
+  </style>
+</head>
+<body>
+  <h1 class="page-title">商家管理后台</h1>
+
+  <!-- 标签页导航 -->
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('orderTab')">订单管理</button>
+    <button class="tab-btn" onclick="switchTab('goodsTab')">商品管理</button>
+  </div>
+
+  <!-- 订单管理标签页 -->
+  <div class="tab-content active" id="orderTab">
+    <button class="refresh-btn" onclick="getAllOrders()">刷新订单列表</button>
+    <div id="orderList"></div>
+  </div>
+
+  <!-- 商品管理标签页 -->
+  <div class="tab-content" id="goodsTab">
+    <button class="refresh-btn" onclick="getAllGoods()">刷新商品列表</button>
+    <div id="goodsList"></div>
+  </div>
+
+  <script>
+    // 替换为你的云环境ID
+    const CLOUD_ENV_ID = "你的云环境ID";
+    // 当前激活的标签页
+    let activeTab = 'orderTab';
+    // 初始化云开发SDK
+    let cloudApp;
+    window.onload = async function() {
+      cloudApp = cloud.init({
+        env: CLOUD_ENV_ID,
+        credentials: { env: CLOUD_ENV_ID }
+      });
+      // 加载订单列表
+      await getAllOrders();
+    };
+
+    // 切换标签页
+    function switchTab(tabId) {
+      // 切换按钮样式
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`).classList.add('active');
+      // 切换内容样式
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      // 更新当前标签
+      activeTab = tabId;
+      // 商品标签页首次切换时加载商品
+      if (tabId === 'goodsTab' && document.getElementById('goodsList').innerHTML === '') {
+        getAllGoods();
+      }
+    }
+
+    // 1. 获取所有订单（SDK调用云函数）
+    async function getAllOrders() {
+      try {
+        const res = await cloudApp.callFunction({
+          name: "adminOrderGoods",
+          data: { type: 'getAllOrders' }
+        });
+        const data = res.result;
+        if (data.success) {
+          renderOrderList(data.orders);
+        } else {
+          alert('获取订单失败');
+          console.error(data.errMsg);
+        }
+      } catch (err) {
+        alert('网络错误，获取订单失败');
+        console.error(err);
+      }
+    }
+
+    // 渲染订单列表
+    function renderOrderList(orders) {
+      const orderListDom = document.getElementById('orderList');
+      if (!orders || orders.length === 0) {
+        orderListDom.innerHTML = '<div class="no-data">暂无订单</div>';
+        return;
+      }
+
+      orderListDom.innerHTML = '';
+      orders.forEach(order => {
+        let goodsText = '';
+        order.goods.forEach(good => {
+          goodsText += `${good.name} × ${good.num}、`;
+        });
+        goodsText = goodsText.slice(0, -1);
+
+        orderListDom.innerHTML += `
+          <div class="order-item" data-id="${order._id}">
+            <h3 class="item-title">订单号：${order.orderId}</h3>
+            <p class="item-info">桌号：${order.table_num || '未知桌号'}</p>
+            <p class="item-info">商品：${goodsText}</p>
+            <p class="item-info">
+              订单状态：
+              <select class="status-select" onchange="updateOrderStatus('${order._id}', this.value)" value="${order.status || '待接单'}">
+                <option value="待接单" ${order.status === '待接单' ? 'selected' : ''}>待接单</option>
+                <option value="制作中" ${order.status === '制作中' ? 'selected' : ''}>制作中</option>
+                <option value="已完成" ${order.status === '已完成' ? 'selected' : ''}>已完成</option>
+                <option value="已取消" ${order.status === '已取消' ? 'selected' : ''}>已取消</option>
+              </select>
+            </p>
+            <p class="item-info">下单时间：${order.createTime || '未知时间'}</p>
+            <p class="item-info">顾客手机号：${order.phone}</p>
+          </div>
+        `;
+      });
+    }
+
+    // 2. 更新订单状态（SDK调用云函数）
+    async function updateOrderStatus(orderId, newStatus) {
+      try {
+        const res = await cloudApp.callFunction({
+          name: "adminOrderGoods",
+          data: {
+            type: 'updateOrderStatus',
+            orderId: orderId,
+            status: newStatus
+          }
+        });
+        const data = res.result;
+        if (data.success) {
+          alert('订单状态更新成功');
+          getAllOrders(); // 刷新订单列表
+        } else {
+          alert('更新订单状态失败');
+          console.error(data.errMsg);
+        }
+      } catch (err) {
+        alert('网络错误，更新失败');
+        console.error(err);
+      }
+    }
+
+    // 3. 获取所有商品（SDK调用云函数）
+    async function getAllGoods() {
+      try {
+        const res = await cloudApp.callFunction({
+          name: "getGoods",
+          data: {}
+        });
+        const data = res.result;
+        if (data.success) {
+          renderGoodsList(data.goods);
+        } else {
+          alert('获取商品失败');
+          console.error(data.errMsg);
+        }
+      } catch (err) {
+        alert('网络错误，获取商品失败');
+        console.error(err);
+      }
+    }
+
+    // 渲染商品列表
+    function renderGoodsList(goods) {
+      const goodsListDom = document.getElementById('goodsList');
+      if (!goods || goods.length === 0) {
+        goodsListDom.innerHTML = '<div class="no-data">暂无商品</div>';
+        return;
+      }
+
+      goodsListDom.innerHTML = '';
+      goods.forEach(good => {
+        const isSaleActive = good.is_sale === 1 ? 'active' : '';
+        goodsListDom.innerHTML += `
+          <div class="goods-item" data-id="${good._id}">
+            <h3 class="item-title">商品名称：${good.name}</h3>
+            <p class="item-info">商品价格：¥${good.price.toFixed(2)}</p>
+            <p class="item-info">商品描述：${good.desc || '暂无描述'}</p>
+            <p class="item-info">
+              可售状态：
+              <span class="sale-switch ${isSaleActive}" onclick="toggleGoodsSale('${good._id}', ${good.is_sale})"></span>
+              ${good.is_sale === 1 ? '可售' : '不可售'}
+            </p>
+          </div>
+        `;
+      });
+    }
+
+    // 4. 切换商品可售状态（SDK调用云函数）
+    async function toggleGoodsSale(goodsId, currentStatus) {
+      const newStatus = currentStatus === 1 ? 0 : 1;
+      try {
+        const res = await cloudApp.callFunction({
+          name: "adminOrderGoods",
+          data: {
+            type: 'toggleGoodsSale',
+            goodsId: goodsId,
+            is_sale: newStatus
+          }
+        });
+        const data = res.result;
+        if (data.success) {
+          getAllGoods(); // 刷新商品列表
+        } else {
+          alert('修改商品状态失败');
+          console.error(data.errMsg);
+        }
+      } catch (err) {
+        alert('网络错误，修改失败');
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>

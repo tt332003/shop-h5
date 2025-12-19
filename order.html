@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的小店 - 下单页</title>
+  <!-- 1. 引入云开发Web SDK（核心：无需HTTP触发） -->
+  <script src="https://res.wx.qq.com/open/js/cloudbase/2.9.1/cloud.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; }
+    body { padding: 20px; background-color: #f8f8f8; }
+    .shop-title { text-align: center; margin-bottom: 20px; color: #333; }
+    .table-select { margin: 15px 0; padding: 10px; background: #fff; border-radius: 8px; }
+    .table-select label { font-weight: bold; color: #555; }
+    .table-select select { padding: 5px; margin-left: 10px; border: 1px solid #eee; border-radius: 4px; }
+    .goods-list { margin: 10px 0; }
+    .goods-item { background: #fff; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .goods-name { font-size: 18px; color: #333; margin-bottom: 5px; }
+    .goods-price { color: #ff4400; font-weight: bold; margin-bottom: 10px; }
+    .goods-desc { color: #666; font-size: 14px; margin-bottom: 10px; }
+    .add-cart-btn { background: #07c160; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    .cart { background: #fff; padding: 15px; border-radius: 8px; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .cart-title { font-weight: bold; margin-bottom: 10px; color: #333; }
+    .cart-info { color: #666; margin: 5px 0; }
+    .total-price { font-size: 16px; color: #ff4400; font-weight: bold; margin: 10px 0; }
+    .phone-input { width: 100%; padding: 8px; border: 1px solid #eee; border-radius: 4px; margin: 10px 0; }
+    .submit-btn { width: 100%; background: #07c160; color: #fff; border: none; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1 class="shop-title">我的小店</h1>
+
+  <!-- 桌号选择 -->
+  <div class="table-select">
+    <label>选择桌号：</label>
+    <select id="tableSelect">
+      <option value="1">1号桌</option>
+      <option value="2">2号桌</option>
+      <option value="3">3号桌</option>
+      <option value="4">4号桌</option>
+    </select>
+  </div>
+
+  <!-- 商品列表 -->
+  <div class="goods-list" id="goodsList"></div>
+
+  <!-- 购物车 -->
+  <div class="cart">
+    <h3 class="cart-title">我的购物车</h3>
+    <p class="cart-info" id="cartInfo">购物车为空</p>
+    <p class="total-price">总价：¥<span id="totalPrice">0.00</span></p>
+    <input type="tel" id="phoneInput" class="phone-input" placeholder="请输入手机号（用于查询订单）">
+    <button class="submit-btn" onclick="submitOrder()">提交订单</button>
+  </div>
+
+  <script>
+    // 2. 替换为你的云环境ID（云开发控制台→环境设置→环境ID）
+    const CLOUD_ENV_ID = "你的云环境ID";
+    // 购物车数据
+    let cartData = [];
+    // 初始化云开发SDK
+    let cloudApp;
+    window.onload = async function() {
+      // 初始化SDK
+      cloudApp = cloud.init({
+        env: CLOUD_ENV_ID,
+        credentials: { env: CLOUD_ENV_ID }
+      });
+      // 获取商品列表
+      await getGoodsList();
+    };
+
+    // 3. 获取可售商品列表（SDK调用云函数，无需HTTP触发）
+    async function getGoodsList() {
+      try {
+        const res = await cloudApp.callFunction({
+          name: "getGoods", // 云函数名称
+          data: {} // 传递给云函数的参数
+        });
+        const data = res.result; // 云函数返回结果
+        if (data.success && data.goods.length > 0) {
+          renderGoodsList(data.goods);
+        } else {
+          document.getElementById('goodsList').innerHTML = '<p style="text-align:center; padding:20px;">暂无可售商品</p>';
+        }
+      } catch (err) {
+        alert('获取商品失败，请刷新页面重试');
+        console.error(err);
+      }
+    }
+
+    // 渲染商品列表
+    function renderGoodsList(goods) {
+      const goodsListDom = document.getElementById('goodsList');
+      goodsListDom.innerHTML = '';
+      goods.forEach(good => {
+        goodsListDom.innerHTML += `
+          <div class="goods-item" data-id="${good._id}">
+            <h3 class="goods-name">${good.name}</h3>
+            <p class="goods-price">¥${good.price.toFixed(2)}</p>
+            <p class="goods-desc">${good.desc || '暂无描述'}</p>
+            <button class="add-cart-btn" onclick="addToCart('${good._id}', '${good.name}', ${good.price})">加入购物车</button>
+          </div>
+        `;
+      });
+    }
+
+    // 加入购物车
+    function addToCart(goodsId, goodsName, goodsPrice) {
+      const existItem = cartData.find(item => item.id === goodsId);
+      if (existItem) {
+        existItem.num += 1;
+      } else {
+        cartData.push({
+          id: goodsId,
+          name: goodsName,
+          price: goodsPrice,
+          num: 1
+        });
+      }
+      updateCartInfo();
+    }
+
+    // 更新购物车信息
+    function updateCartInfo() {
+      const cartInfoDom = document.getElementById('cartInfo');
+      const totalPriceDom = document.getElementById('totalPrice');
+      let cartText = '';
+      let totalPrice = 0;
+
+      if (cartData.length === 0) {
+        cartText = '购物车为空';
+        totalPrice = 0;
+      } else {
+        cartData.forEach(item => {
+          cartText += `${item.name} × ${item.num}、`;
+          totalPrice += item.price * item.num;
+        });
+        cartText = cartText.slice(0, -1); // 去掉最后一个顿号
+      }
+
+      cartInfoDom.innerText = cartText;
+      totalPriceDom.innerText = totalPrice.toFixed(2);
+    }
+
+    // 4. 提交订单（SDK调用云函数）
+    async function submitOrder() {
+      const phone = document.getElementById('phoneInput').value.trim();
+      const tableNum = document.getElementById('tableSelect').value;
+      if (!phone) {
+        alert('请输入手机号！');
+        return;
+      }
+      if (cartData.length === 0) {
+        alert('请先添加商品到购物车！');
+        return;
+      }
+
+      // 生成唯一订单号
+      const orderId = 'ORD' + Date.now() + Math.floor(Math.random() * 1000);
+      // 构建订单数据
+      const orderData = {
+        orderId,
+        table_num: tableNum,
+        goods: cartData,
+        phone: phone,
+        status: '待接单'
+      };
+
+      try {
+        const res = await cloudApp.callFunction({
+          name: "submitOrder", // 云函数名称
+          data: orderData // 传递订单数据
+        });
+        const data = res.result;
+        if (data.success) {
+          alert(`下单成功！\n订单号：${orderId}\n可凭手机号查询订单状态`);
+          // 清空购物车
+          cartData = [];
+          updateCartInfo();
+          // 清空手机号输入框
+          document.getElementById('phoneInput').value = '';
+        } else {
+          alert('下单失败，请重试');
+          console.error(data.errMsg);
+        }
+      } catch (err) {
+        alert('网络错误，下单失败');
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>

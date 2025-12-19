@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的订单 - 查询页</title>
+  <!-- 引入云开发Web SDK -->
+  <script src="https://res.wx.qq.com/open/js/cloudbase/2.9.1/cloud.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; }
+    body { padding: 20px; background-color: #f8f8f8; }
+    .page-title { text-align: center; margin-bottom: 20px; color: #333; }
+    .query-form { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .input-item { margin: 10px 0; }
+    .input-item label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; }
+    .input-item input { width: 100%; padding: 8px; border: 1px solid #eee; border-radius: 4px; }
+    .query-btn { width: 100%; background: #07c160; color: #fff; border: none; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+    .order-list { margin-top: 20px; }
+    .order-item { background: #fff; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .order-title { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px; }
+    .order-info { color: #666; margin: 5px 0; font-size: 14px; }
+    .order-goods { color: #444; margin: 8px 0; }
+    .no-order { text-align: center; padding: 20px; color: #666; background: #fff; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1 class="page-title">我的订单查询</h1>
+
+  <!-- 查询表单 -->
+  <div class="query-form">
+    <div class="input-item">
+      <label for="phoneInput">下单手机号</label>
+      <input type="tel" id="phoneInput" placeholder="请输入下单时填写的手机号">
+    </div>
+    <div class="input-item">
+      <label for="orderIdInput">订单号（可选）</label>
+      <input type="text" id="orderIdInput" placeholder="如：ORD1734620000000123">
+    </div>
+    <button class="query-btn" onclick="queryMyOrders()">查询我的订单</button>
+  </div>
+
+  <!-- 订单列表 -->
+  <div class="order-list" id="orderList"></div>
+
+  <script>
+    // 替换为你的云环境ID
+    const CLOUD_ENV_ID = "你的云环境ID";
+    // 初始化云开发SDK
+    let cloudApp;
+    window.onload = async function() {
+      cloudApp = cloud.init({
+        env: CLOUD_ENV_ID,
+        credentials: { env: CLOUD_ENV_ID }
+      });
+    };
+
+    // 查询我的订单（SDK调用云函数）
+    async function queryMyOrders() {
+      const phone = document.getElementById('phoneInput').value.trim();
+      const orderId = document.getElementById('orderIdInput').value.trim();
+      if (!phone) {
+        alert('请输入下单手机号！');
+        return;
+      }
+
+      // 构建查询参数
+      const queryParams = { phone };
+      if (orderId) {
+        queryParams.orderId = orderId;
+      }
+
+      try {
+        const res = await cloudApp.callFunction({
+          name: "getMyOrders",
+          data: queryParams
+        });
+        const data = res.result;
+        renderOrderList(data.orders);
+      } catch (err) {
+        alert('查询失败，请刷新页面重试');
+        console.error(err);
+      }
+    }
+
+    // 渲染订单列表
+    function renderOrderList(orders) {
+      const orderListDom = document.getElementById('orderList');
+      if (!orders || orders.length === 0) {
+        orderListDom.innerHTML = '<div class="no-order">暂无相关订单</div>';
+        return;
+      }
+
+      orderListDom.innerHTML = '';
+      orders.forEach(order => {
+        let goodsText = '';
+        order.goods.forEach(good => {
+          goodsText += `${good.name} × ${good.num}、`;
+        });
+        goodsText = goodsText.slice(0, -1);
+
+        orderListDom.innerHTML += `
+          <div class="order-item">
+            <h3 class="order-title">订单号：${order.orderId}</h3>
+            <p class="order-info">桌号：${order.table_num || '未知桌号'}</p>
+            <p class="order-goods">商品：${goodsText}</p>
+            <p class="order-info">订单状态：${order.status || '待接单'}</p>
+            <p class="order-info">下单时间：${order.createTime || '未知时间'}</p>
+            <p class="order-info">下单手机号：${order.phone}</p>
+          </div>
+        `;
+      });
+    }
+  </script>
+</body>
+</html>
